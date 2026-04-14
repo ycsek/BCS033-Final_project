@@ -49,8 +49,10 @@ def main():
     logger.info(
         f"Using device: {device} | DP Enabled: {args.use_dp} | Augmentation: {args.use_aug}")
 
+    # Get dataloaders - keep original for MIA and Train Acc evaluation
     train_loader, test_loader, num_classes = get_dataloaders(
         args.dataset, args.batch_size, args.num_workers, args.use_aug)
+    original_train_loader = train_loader  # For MIA + Train Acc
 
     target_model = get_target_model(num_classes, device)
     criterion = nn.CrossEntropyLoss()
@@ -63,7 +65,7 @@ def main():
         target_model, optimizer, train_loader = privacy_engine.make_private(
             module=target_model,
             optimizer=optimizer,
-            data_loader=train_loader,
+            data_loader=original_train_loader,
             noise_multiplier=args.noise_multiplier,
             max_grad_norm=args.max_grad_norm,
         )
@@ -83,15 +85,24 @@ def main():
             target_loss = train_target_epoch(
                 target_model, train_loader, optimizer, criterion, device, epoch, args.target_epochs)
 
+        # 计算训练集准确率（使用 original_train_loader）
+        train_acc = evaluate_model(target_model, original_train_loader, device)
+        # 计算测试集准确率
         target_acc = evaluate_model(target_model, test_loader, device)
+
         epsilon = privacy_engine.get_epsilon(1e-5) if args.use_dp else None
 
-        log_msg = f"Target Epoch {epoch}/{args.target_epochs} | Loss: {target_loss:.4f} | ACC: {target_acc:.2f}%"
+        log_msg = (f"Target Epoch {epoch}/{args.target_epochs} | "
+                   f"Loss: {target_loss:.4f} | "
+                   f"Train ACC: {train_acc:.2f}% | "
+                   f"Test ACC: {target_acc:.2f}%")
         if epsilon:
             log_msg += f" | ε: {epsilon:.2f}"
         logger.info(log_msg)
 
-        logger.log_epoch_metrics(epoch, target_loss, target_acc, epsilon)
+        # 记录到日志（包含 Train Acc）
+        logger.log_epoch_metrics(
+            epoch, target_loss, train_acc, target_acc, epsilon)
 
     # ================= Phase 2: MIA Vulnerability Evaluation =================
     logger.info("\n" + "="*20 +
@@ -99,7 +110,7 @@ def main():
     target_model.eval()
 
     asr = evaluate_mia_vulnerability(
-        target_model, train_loader, test_loader, num_classes, device, args)
+        target_model, original_train_loader, test_loader, num_classes, device, args)
 
     logger.info(f"Final MIA Attack Success Rate (ASR): {asr:.2f}%")
     logger.log_final_asr(asr)

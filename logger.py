@@ -33,11 +33,12 @@ class ExperimentLogger:
     def info(self, msg):
         self.logger.info(msg)
 
-    def log_epoch_metrics(self, epoch, target_loss, target_acc, epsilon=None):
+    def log_epoch_metrics(self, epoch, target_loss, train_acc, target_acc, epsilon=None):
         record = {
             "epoch": epoch,
             "target_loss": target_loss,
-            "target_acc": target_acc
+            "train_acc": train_acc,      # 新增：训练集准确率
+            "target_acc": target_acc     # 测试集准确率
         }
         if epsilon is not None:
             record["epsilon"] = epsilon
