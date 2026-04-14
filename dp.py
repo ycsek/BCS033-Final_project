@@ -2,8 +2,54 @@
 import torch
 import torch.nn as nn
 from torchvision.models import resnet50
+from torchvision.models.resnet import Bottleneck, BasicBlock
 from opacus.validators import ModuleValidator
 from tqdm import tqdm
+
+# ================= 终极修复方案：动态替换 ResNet 源码中的 Inplace 加法 =================
+
+
+def patched_bottleneck_forward(self, x):
+    identity = x
+    out = self.conv1(x)
+    out = self.bn1(out)
+    out = self.relu(out)
+    out = self.conv2(out)
+    out = self.bn2(out)
+    out = self.relu(out)
+    out = self.conv3(out)
+    out = self.bn3(out)
+    if self.downsample is not None:
+        identity = self.downsample(x)
+
+    # 核心修复点：将原本的 out += identity 改为 out = out + identity
+    out = out + identity
+
+    out = self.relu(out)
+    return out
+
+
+def patched_basicblock_forward(self, x):
+    identity = x
+    out = self.conv1(x)
+    out = self.bn1(out)
+    out = self.relu(out)
+    out = self.conv2(out)
+    out = self.bn2(out)
+    if self.downsample is not None:
+        identity = self.downsample(x)
+
+    # 核心修复点：将原本的 out += identity 改为 out = out + identity
+    out = out + identity
+
+    out = self.relu(out)
+    return out
+
+
+# 强制替换 torchvision 内部类的 forward 方法
+Bottleneck.forward = patched_bottleneck_forward
+BasicBlock.forward = patched_basicblock_forward
+# ===================================================================================
 
 
 def get_target_model(num_classes, device):
@@ -12,15 +58,14 @@ def get_target_model(num_classes, device):
                             stride=1, padding=1, bias=False)
     model.maxpool = nn.Identity()
 
-    # ================= 新增修复代码 =================
-    # 禁用所有 inplace 操作，防止覆盖 Opacus 计算 per-sample grad 所需的激活值
+    # 1. 先让 Opacus 修复 BatchNorm -> GroupNorm
+    if not ModuleValidator.is_valid(model):
+        model = ModuleValidator.fix(model)
+
+    # 2. 必须在 fix 之后，再强制关闭所有网络层（包括 ReLU 等）的 inplace 属性
     for module in model.modules():
         if hasattr(module, 'inplace'):
             module.inplace = False
-    # ================================================
-
-    if not ModuleValidator.is_valid(model):
-        model = ModuleValidator.fix(model)
 
     return model.to(device)
 
@@ -30,7 +75,7 @@ def train_target_epoch(model, train_loader, optimizer, criterion, device, epoch=
     running_loss = 0.0
 
     pbar_desc = f"Epoch [{epoch}/{total_epochs}] Train"
-    pbar = tqdm(train_loader, desc=pbar_desc, leave=False, dynamic_ncols=True)
+    pbar = tqdm(train_loader, desc=pbar_desc, leave=True, dynamic_ncols=False)
 
     for inputs, targets in pbar:
         inputs, targets = inputs.to(device), targets.to(device)
