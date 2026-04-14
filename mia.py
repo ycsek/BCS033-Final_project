@@ -13,15 +13,13 @@ class AttackModel(nn.Module):
         super(AttackModel, self).__init__()
         input_dim = num_classes * 2 + 2
         self.net = nn.Sequential(
-            nn.Linear(input_dim, 512),
-            nn.LayerNorm(512),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, 256),
+            nn.Linear(input_dim, 256),
             nn.LayerNorm(256),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, 64),
+            nn.Linear(256, 128),
+            nn.LayerNorm(128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
             nn.Sigmoid()
@@ -57,7 +55,6 @@ def extract_strong_features(model, dataloader, is_member, num_classes, device):
 
 
 def evaluate_mia_vulnerability(target_model, train_loader, test_loader, num_classes, device, args):
-    """提取当前 Target Model 的特征，训练一个新的攻击模型，返回 ASR"""
     feat_in, lab_in = extract_strong_features(
         target_model, train_loader, True, num_classes, device)
     feat_out, lab_out = extract_strong_features(
@@ -72,7 +69,6 @@ def evaluate_mia_vulnerability(target_model, train_loader, test_loader, num_clas
     attack_loader = DataLoader(TensorDataset(
         X_tensor, Y_tensor), batch_size=512, shuffle=True)
 
-    # 每次评估必须重新初始化攻击模型，防止过去 epoch 的权重残留污染测试结果
     attack_model = AttackModel(num_classes).to(device)
     criterion = nn.BCELoss()
     optimizer = optim.Adam(attack_model.parameters(),

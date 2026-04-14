@@ -3,7 +3,9 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.backends import cudnn
 from opacus import PrivacyEngine
+from opacus.utils.batch_memory_manager import BatchMemoryManager
 from utils import get_dataloaders
 from dp import get_target_model, train_target_epoch, evaluate_model
 from mia import evaluate_mia_vulnerability
@@ -12,21 +14,28 @@ from logger import ExperimentLogger
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Dynamic DP-SGD and MIA Evaluation")
-
+        description="Static DP-SGD and MIA Evaluation")
     parser.add_argument('--dataset', type=str, default='CIFAR10',
                         choices=['SVHN', 'CelebA', 'CIFAR10', 'MNIST'])
-    parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--lr', type=float, default=0.01)
-    parser.add_argument('--mia_lr', type=float,
-                        default=0.005)  # 适当调大 MIA 学习率以加速单次探测
-    parser.add_argument('--target_epochs', type=int, default=100)
-    parser.add_argument('--mia_epochs', type=int,
-                        default=10)  # 每次探测只需较少的 epoch 即可收敛
+    parser.add_argument('--batch_size', type=int, default=512)
+    parser.add_argument('--lr', type=float, default=0.05)
+    parser.add_argument('--mia_lr', type=float, default=0.001)
+    parser.add_argument('--target_epochs', type=int,
+                        default=200)
+    parser.add_argument('--mia_epochs', type=int, default=150)
+    parser.add_argument('--num_workers', type=int, default=8)
 
+    # 新增控制参数
+    parser.add_argument('--use_aug', action='store_true',
+                        help="Enable data augmentation")
+    parser.add_argument('--weight_decay', type=float,
+                        default=0.0, help="Set to 0 to induce overfitting")
+
+    # DP 参数
     parser.add_argument('--use_dp', action='store_true')
-    parser.add_argument('--max_grad_norm', type=float, default=1.0)
-    parser.add_argument('--noise_multiplier', type=float, default=1.2)
+    parser.add_argument('--max_grad_norm', type=float, default=1.2)
+    parser.add_argument('--noise_multiplier', type=float, default=1.0)
+    parser.add_argument('--max_physical_batch_size', type=int, default=128)
 
     return parser.parse_args()
 
@@ -34,19 +43,20 @@ def parse_args():
 def main():
     args = parse_args()
     logger = ExperimentLogger(args)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f"Using device: {device} | DP Enabled: {args.use_dp}")
+    device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+    cudnn.benchmark = True
+
+    logger.info(
+        f"Using device: {device} | DP Enabled: {args.use_dp} | Augmentation: {args.use_aug}")
 
     train_loader, test_loader, num_classes = get_dataloaders(
-        args.dataset, args.batch_size)
+        args.dataset, args.batch_size, args.num_workers, args.use_aug)
 
-    # 1. 初始化目标模型与优化器
     target_model = get_target_model(num_classes, device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(target_model.parameters(),
-                          lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.SGD(target_model.parameters(
+    ), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
 
-    # 2. 初始化差分隐私引擎
     privacy_engine = None
     if args.use_dp:
         privacy_engine = PrivacyEngine()
@@ -58,31 +68,41 @@ def main():
             max_grad_norm=args.max_grad_norm,
         )
 
-    # 3. 动态轨迹主循环 (Dynamic Trajectory Loop)
+    # ================= Phase 1: Target Model Training =================
+    logger.info("\n" + "="*20 + " Phase 1: Training Target Model " + "="*20)
     for epoch in range(1, args.target_epochs + 1):
-        logger.info(
-            f"\n{'='*20} Target Epoch {epoch}/{args.target_epochs} {'='*20}")
+        if args.use_dp:
+            with BatchMemoryManager(
+                data_loader=train_loader,
+                max_physical_batch_size=args.max_physical_batch_size,
+                optimizer=optimizer
+            ) as memory_safe_data_loader:
+                target_loss = train_target_epoch(
+                    target_model, memory_safe_data_loader, optimizer, criterion, device, epoch, args.target_epochs)
+        else:
+            target_loss = train_target_epoch(
+                target_model, train_loader, optimizer, criterion, device, epoch, args.target_epochs)
 
-        # 步骤 A: 训练目标模型一个 Epoch
-        target_loss = train_target_epoch(
-            target_model, train_loader, optimizer, criterion, device)
-
-        # 步骤 B: 评估目标模型 Utility (ACC)
         target_acc = evaluate_model(target_model, test_loader, device)
-
-        # 步骤 C: 评估当前状态下的隐私脆弱性 (ASR)
-        asr = evaluate_mia_vulnerability(
-            target_model, train_loader, test_loader, num_classes, device, args)
-
-        # 步骤 D: 记录与输出
         epsilon = privacy_engine.get_epsilon(1e-5) if args.use_dp else None
 
-        log_msg = f"Epoch {epoch} | Target Loss: {target_loss:.4f} | Target ACC: {target_acc:.2f}% | MIA ASR: {asr:.2f}%"
+        log_msg = f"Target Epoch {epoch}/{args.target_epochs} | Loss: {target_loss:.4f} | ACC: {target_acc:.2f}%"
         if epsilon:
             log_msg += f" | ε: {epsilon:.2f}"
         logger.info(log_msg)
 
-        logger.log_epoch_metrics(epoch, target_loss, target_acc, asr, epsilon)
+        logger.log_epoch_metrics(epoch, target_loss, target_acc, epsilon)
+
+    # ================= Phase 2: MIA Vulnerability Evaluation =================
+    logger.info("\n" + "="*20 +
+                " Phase 2: Evaluating MIA Vulnerability " + "="*20)
+    target_model.eval()
+
+    asr = evaluate_mia_vulnerability(
+        target_model, train_loader, test_loader, num_classes, device, args)
+
+    logger.info(f"Final MIA Attack Success Rate (ASR): {asr:.2f}%")
+    logger.log_final_asr(asr)
 
     logger.save_results()
 

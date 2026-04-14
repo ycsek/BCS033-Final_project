@@ -11,15 +11,27 @@ def get_target_model(num_classes, device):
     model.conv1 = nn.Conv2d(3, 64, kernel_size=3,
                             stride=1, padding=1, bias=False)
     model.maxpool = nn.Identity()
+
+    # ================= 新增修复代码 =================
+    # 禁用所有 inplace 操作，防止覆盖 Opacus 计算 per-sample grad 所需的激活值
+    for module in model.modules():
+        if hasattr(module, 'inplace'):
+            module.inplace = False
+    # ================================================
+
     if not ModuleValidator.is_valid(model):
         model = ModuleValidator.fix(model)
+
     return model.to(device)
 
 
-def train_target_epoch(model, train_loader, optimizer, criterion, device):
+def train_target_epoch(model, train_loader, optimizer, criterion, device, epoch=1, total_epochs=1):
     model.train()
     running_loss = 0.0
-    pbar = tqdm(train_loader, desc="Target Train", leave=True)
+
+    pbar_desc = f"Epoch [{epoch}/{total_epochs}] Train"
+    pbar = tqdm(train_loader, desc=pbar_desc, leave=False, dynamic_ncols=True)
+
     for inputs, targets in pbar:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -29,6 +41,7 @@ def train_target_epoch(model, train_loader, optimizer, criterion, device):
         optimizer.step()
         running_loss += loss.item()
         pbar.set_postfix({'loss': f"{loss.item():.4f}"})
+
     return running_loss / len(train_loader)
 
 

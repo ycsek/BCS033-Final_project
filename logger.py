@@ -10,12 +10,12 @@ class ExperimentLogger:
         self.args = vars(args)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         prefix = "DP" if args.use_dp else "Base"
-        self.log_dir = f"./logs/Dynamic_{prefix}_{args.dataset}_{timestamp}"
+        self.log_dir = f"./logs/Static_{prefix}_{args.dataset}_{timestamp}"
         os.makedirs(self.log_dir, exist_ok=True)
 
         logging.basicConfig(
             level=logging.INFO,
-            format='%(message)s',  # 简化控制台输出，去掉时间戳以保持清爽
+            format='%(message)s',
             handlers=[
                 logging.FileHandler(os.path.join(
                     self.log_dir, "training.log")),
@@ -26,26 +26,29 @@ class ExperimentLogger:
 
         self.results = {
             "hyperparameters": self.args,
-            "trajectory": []  # 统一存放每一步的动态指标
+            "trajectory": [],
+            "final_asr": None
         }
 
     def info(self, msg):
         self.logger.info(msg)
 
-    def log_epoch_metrics(self, epoch, target_loss, target_acc, asr, epsilon=None):
+    def log_epoch_metrics(self, epoch, target_loss, target_acc, epsilon=None):
         record = {
             "epoch": epoch,
             "target_loss": target_loss,
-            "target_acc": target_acc,
-            "asr": asr
+            "target_acc": target_acc
         }
         if epsilon is not None:
             record["epsilon"] = epsilon
         self.results["trajectory"].append(record)
+
+    def log_final_asr(self, asr):
+        self.results["final_asr"] = asr
 
     def save_results(self):
         result_path = os.path.join(self.log_dir, "results.json")
         with open(result_path, 'w', encoding='utf-8') as f:
             json.dump(self.results, f, indent=4)
         self.info(
-            f"\n>>> Trajectory data successfully saved to {result_path} <<<")
+            f"\n>>> Experiment data successfully saved to {result_path} <<<")
