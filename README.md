@@ -1,2 +1,2 @@
 # BCS033-Final_project
-BCS 027 Advanced Topics in Artificial Intelligence
+BCS 033 Advanced Topics in Artificial Intelligence
