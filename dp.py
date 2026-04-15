@@ -6,8 +6,6 @@ from torchvision.models.resnet import Bottleneck, BasicBlock
 from opacus.validators import ModuleValidator
 from tqdm import tqdm
 
-# ================= 终极修复方案：动态替换 ResNet 源码中的 Inplace 加法 =================
-
 
 def patched_bottleneck_forward(self, x):
     identity = x
@@ -21,8 +19,6 @@ def patched_bottleneck_forward(self, x):
     out = self.bn3(out)
     if self.downsample is not None:
         identity = self.downsample(x)
-
-    # 核心修复点：将原本的 out += identity 改为 out = out + identity
     out = out + identity
 
     out = self.relu(out)
@@ -38,15 +34,12 @@ def patched_basicblock_forward(self, x):
     out = self.bn2(out)
     if self.downsample is not None:
         identity = self.downsample(x)
-
-    # 核心修复点：将原本的 out += identity 改为 out = out + identity
     out = out + identity
 
     out = self.relu(out)
     return out
 
 
-# 强制替换 torchvision 内部类的 forward 方法
 Bottleneck.forward = patched_bottleneck_forward
 BasicBlock.forward = patched_basicblock_forward
 # ===================================================================================
@@ -58,11 +51,10 @@ def get_target_model(num_classes, device):
                             stride=1, padding=1, bias=False)
     model.maxpool = nn.Identity()
 
-    # 1. 先让 Opacus 修复 BatchNorm -> GroupNorm
+    # BatchNorm -> GroupNorm
     if not ModuleValidator.is_valid(model):
         model = ModuleValidator.fix(model)
 
-    # 2. 必须在 fix 之后，再强制关闭所有网络层（包括 ReLU 等）的 inplace 属性
     for module in model.modules():
         if hasattr(module, 'inplace'):
             module.inplace = False

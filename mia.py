@@ -6,8 +6,9 @@ from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 from tqdm import tqdm
 import torch.nn.functional as F
+from sklearn.metrics import roc_auc_score, precision_recall_fscore_support  # 新增
 
-
+# MIA Attack Model Definition, simple MLP
 class AttackModel(nn.Module):
     def __init__(self, num_classes):
         super(AttackModel, self).__init__()
@@ -28,7 +29,7 @@ class AttackModel(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-
+# Get features for MIA attack model, White-box setting
 def extract_strong_features(model, dataloader, is_member, num_classes, device):
     model.eval()
     features, labels = [], []
@@ -66,7 +67,7 @@ def evaluate_mia_vulnerability(target_model, train_loader, test_loader, num_clas
     X = np.vstack((feat_in[:min_len], feat_out[:min_len]))
     Y = np.concatenate((lab_in[:min_len], lab_out[:min_len]))
 
-    # Train/test split for unbiased ASR
+    # Train/test split
     indices = np.arange(len(X))
     np.random.shuffle(indices)
     split = int(0.8 * len(X))
@@ -92,11 +93,10 @@ def evaluate_mia_vulnerability(target_model, train_loader, test_loader, num_clas
                            lr=args.mia_lr, weight_decay=1e-4)
 
     logger_msg = "MIA Probing (with proper train/test split)"
-    pbar = tqdm(range(args.mia_epochs), desc=logger_msg, leave=True)
+    pbar = tqdm(range(args.mia_epochs), desc=logger_msg,
+                leave=True, dynamic_ncols=False)
 
-    final_test_asr = 0.0
     for epoch in pbar:
-        # Training phase
         attack_model.train()
         for inputs, targets in attack_train_loader:
             inputs, targets = inputs.to(device), targets.to(device)
@@ -106,18 +106,37 @@ def evaluate_mia_vulnerability(target_model, train_loader, test_loader, num_clas
             loss.backward()
             optimizer.step()
 
-        # Evaluate on test set
-        attack_model.eval()
-        correct, total = 0, 0
-        with torch.no_grad():
-            for inputs, targets in attack_test_loader:
-                inputs, targets = inputs.to(device), targets.to(device)
-                outputs = attack_model(inputs)
-                preds = (outputs > 0.5).float()
-                total += targets.size(0)
-                correct += (preds == targets).sum().item()
+    # Final evaluation on test set with full metrics
+    attack_model.eval()
+    test_probs = []
+    test_labels = []
+    with torch.no_grad():
+        for inputs, targets in attack_test_loader:
+            inputs, targets = inputs.to(device), targets.to(device)
+            outputs = attack_model(inputs)
+            test_probs.append(outputs.cpu().numpy())
+            test_labels.append(targets.cpu().numpy().flatten())
 
-        final_test_asr = 100. * correct / total
-        pbar.set_postfix({'test_asr': f"{final_test_asr:.2f}%"})
+    test_probs = np.concatenate(test_probs).flatten()
+    test_labels = np.concatenate(test_labels)
 
-    return final_test_asr
+    # Compute metrics
+    final_test_asr = 100. * ((test_probs > 0.5) == test_labels).mean()
+    auc_roc = roc_auc_score(test_labels, test_probs)
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        test_labels, (test_probs > 0.5).astype(int), average='binary', zero_division=0)
+
+    pbar.set_postfix({
+        'ASR': f"{final_test_asr:.2f}%",
+        'AUC': f"{auc_roc:.4f}",
+        'Prec': f"{precision:.4f}",
+        'Rec': f"{recall:.4f}"
+    })
+
+    return {
+        "asr": final_test_asr,
+        "auc_roc": auc_roc,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1
+    }

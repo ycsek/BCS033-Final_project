@@ -37,8 +37,8 @@ class ExperimentLogger:
         record = {
             "epoch": epoch,
             "target_loss": target_loss,
-            "train_acc": train_acc,      # 新增：训练集准确率
-            "target_acc": target_acc     # 测试集准确率
+            "train_acc": train_acc,
+            "target_acc": target_acc
         }
         if epsilon is not None:
             record["epsilon"] = epsilon

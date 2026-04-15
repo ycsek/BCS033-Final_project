@@ -19,7 +19,7 @@ def get_dataloaders(dataset_name="CIFAR10", batch_size=256, num_workers=8, use_a
                 transforms.Normalize(mean, std)
             ])
         else:
-            # 关闭增强，诱导过拟合
+            # Induce overfitting by removing augmentation
             train_transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize(mean, std)
