@@ -27,7 +27,7 @@ class ExperimentLogger:
         self.results = {
             "hyperparameters": self.args,
             "trajectory": [],
-            "final_asr": None
+            "final_mia_metrics": None
         }
 
     def info(self, msg):
@@ -44,8 +44,8 @@ class ExperimentLogger:
             record["epsilon"] = epsilon
         self.results["trajectory"].append(record)
 
-    def log_final_asr(self, asr):
-        self.results["final_asr"] = asr
+    def log_final_metrics(self, metrics):
+        self.results["final_mia_metrics"] = metrics
 
     def save_results(self):
         result_path = os.path.join(self.log_dir, "results.json")

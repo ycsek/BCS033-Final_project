@@ -19,20 +19,21 @@ def get_dataloaders(dataset_name="CIFAR10", batch_size=256, num_workers=8, use_a
                 transforms.Normalize(mean, std)
             ])
         else:
-            # Induce overfitting by removing augmentation
             train_transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize(mean, std)
             ])
-
         test_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
+
         train_dataset = torchvision.datasets.CIFAR10(
             root=DATA_ROOT, train=True, download=True, transform=train_transform)
         test_dataset = torchvision.datasets.CIFAR10(
             root=DATA_ROOT, train=False, download=True, transform=test_transform)
+        eval_train_dataset = torchvision.datasets.CIFAR10(
+            root=DATA_ROOT, train=True, download=True, transform=test_transform)
         num_classes = 10
 
     elif dataset_name == "SVHN":
@@ -47,10 +48,13 @@ def get_dataloaders(dataset_name="CIFAR10", batch_size=256, num_workers=8, use_a
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
+
         train_dataset = torchvision.datasets.SVHN(
             root=DATA_ROOT, split='train', download=True, transform=train_transform)
         test_dataset = torchvision.datasets.SVHN(
             root=DATA_ROOT, split='test', download=True, transform=test_transform)
+        eval_train_dataset = torchvision.datasets.SVHN(
+            root=DATA_ROOT, split='train', download=True, transform=test_transform)
         num_classes = 10
 
     elif dataset_name == "MNIST":
@@ -69,10 +73,13 @@ def get_dataloaders(dataset_name="CIFAR10", batch_size=256, num_workers=8, use_a
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
+
         train_dataset = torchvision.datasets.MNIST(
             root=DATA_ROOT, train=True, download=True, transform=train_transform)
         test_dataset = torchvision.datasets.MNIST(
             root=DATA_ROOT, train=False, download=True, transform=test_transform)
+        eval_train_dataset = torchvision.datasets.MNIST(
+            root=DATA_ROOT, train=True, download=True, transform=test_transform)
         num_classes = 10
 
     elif dataset_name == "CelebA":
@@ -89,10 +96,13 @@ def get_dataloaders(dataset_name="CIFAR10", batch_size=256, num_workers=8, use_a
             transforms.Normalize(mean, std)
         ])
         def target_transform(target): return target[20]
+
         train_dataset = torchvision.datasets.CelebA(
             root=DATA_ROOT, split='train', download=True, transform=train_transform, target_type='attr', target_transform=target_transform)
         test_dataset = torchvision.datasets.CelebA(
             root=DATA_ROOT, split='test', download=True, transform=test_transform, target_type='attr', target_transform=target_transform)
+        eval_train_dataset = torchvision.datasets.CelebA(
+            root=DATA_ROOT, split='train', download=True, transform=test_transform, target_type='attr', target_transform=target_transform)
         num_classes = 2
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
@@ -103,5 +113,7 @@ def get_dataloaders(dataset_name="CIFAR10", batch_size=256, num_workers=8, use_a
         train_dataset, batch_size=batch_size, shuffle=True, **loader_kwargs)
     test_loader = DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
+    eval_train_loader = DataLoader(
+        eval_train_dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
 
-    return train_loader, test_loader, num_classes
+    return train_loader, test_loader, eval_train_loader, num_classes
