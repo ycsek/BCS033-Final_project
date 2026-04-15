@@ -1,4 +1,4 @@
-# main.py
+# main.py（已修复调用顺序）
 import argparse
 import torch
 import torch.nn as nn
@@ -11,8 +11,6 @@ from dp import get_target_model, train_target_epoch, evaluate_model
 from mia import evaluate_mia_vulnerability
 from logger import ExperimentLogger
 from analysis import run_analysis
-
-# Hypre-parameters
 
 
 def parse_args():
@@ -71,6 +69,7 @@ def main():
             max_grad_norm=args.max_grad_norm,
         )
 
+    # ================= Phase 1: Training Target Model =================
     logger.info("\n" + "="*20 + " Phase 1: Training Target Model " + "="*20)
     for epoch in range(1, args.target_epochs + 1):
         if args.use_dp:
@@ -99,6 +98,7 @@ def main():
         logger.log_epoch_metrics(
             epoch, target_loss, train_acc, target_acc, epsilon)
 
+    # ================= Phase 2: MIA Vulnerability Evaluation =================
     logger.info("\n" + "="*20 +
                 " Phase 2: Evaluating MIA Vulnerability " + "="*20)
     target_model.eval()
@@ -111,11 +111,13 @@ def main():
                 f"Recall: {mia_results['recall']:.4f}")
     logger.log_final_asr(mia_results['asr'])
 
+    # ================= 保存结果（关键修复点） =================
+    logger.save_results()
+
+    # ================= Phase 3: Enhanced Metrics & Interpretability Analysis =================
     logger.info("\n" + "="*20 +
                 " Phase 3: Enhanced Metrics & Interpretability Analysis " + "="*20)
     run_analysis(logger.log_dir, target_model, test_loader, device, args)
-
-    logger.save_results()
 
 
 if __name__ == "__main__":

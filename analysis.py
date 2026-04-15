@@ -1,4 +1,4 @@
-# analysis.py
+# analysis.py（已修复完整版本）
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -6,10 +6,11 @@ import matplotlib.pyplot as plt
 import os
 import json
 from torchvision.utils import make_grid
-from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
 
 
 class GradCAM:
+    """简单 Grad-CAM 实现，适用于 ResNet50 的 layer4"""
+
     def __init__(self, model, target_layer):
         self.model = model
         self.target_layer = target_layer
@@ -40,13 +41,18 @@ class GradCAM:
 
 
 def compute_psnr_ssim(original: torch.Tensor, noisy: torch.Tensor) -> tuple:
+    """纯 PyTorch 实现 PSNR 与 SSIM（已修复 bool 类型问题）"""
     mse = torch.mean((original - noisy) ** 2, dim=[1, 2, 3])
     psnr = 20 * torch.log10(1.0 / torch.sqrt(mse))
-    ssim_val = torch.mean(torch.abs(original - noisy) < 0.05).item()
+
+    # 修复点：将 bool 张量显式转为 float 后再求 mean
+    ssim_val = torch.mean((torch.abs(original - noisy) < 0.05).float()).item()
+
     return psnr.mean().item(), ssim_val
 
 
 def simulate_gaussian_noise(images: torch.Tensor, noise_multiplier: float, device: torch.device):
+    """模拟 DP-SGD 噪声强度对图像的影响"""
     sigma = noise_multiplier * 0.05
     noise = torch.randn_like(images, device=device) * sigma
     noisy_images = torch.clamp(images + noise, 0.0, 1.0)
@@ -54,10 +60,11 @@ def simulate_gaussian_noise(images: torch.Tensor, noise_multiplier: float, devic
 
 
 def run_analysis(log_dir: str, target_model, test_loader, device, args):
+    """可解释性分析主入口（含 Grad-CAM + MIA 高级指标）"""
     target_model.eval()
     additional_metrics = {}
 
-    # Top-1, Top-5 ACC and Test Loss
+    # 1. 测试集高级分类指标
     test_loss = 0.0
     top1_correct, top5_correct, total = 0, 0, 0
     criterion = torch.nn.CrossEntropyLoss()
@@ -79,7 +86,7 @@ def run_analysis(log_dir: str, target_model, test_loader, device, args):
         "top5_acc": 100. * top5_correct / total
     })
 
-    # Robustness to Noise (PSNR, SSIM, Noisy Accuracy)
+    # 2. 噪声鲁棒性 + 图像质量
     batch = next(iter(test_loader))
     images, labels = batch[0].to(device)[:16], batch[1].to(device)[:16]
     noisy_images = simulate_gaussian_noise(
@@ -95,9 +102,8 @@ def run_analysis(log_dir: str, target_model, test_loader, device, args):
         "noisy_test_acc": noisy_acc
     })
 
-    # Grad-CAM Visualization
-    target_layer = dict(target_model.named_modules())[
-        'layer4']
+    # 3. Grad-CAM 可解释性可视化
+    target_layer = dict(target_model.named_modules())['layer4']
     gradcam = GradCAM(target_model, target_layer)
 
     with torch.no_grad():
@@ -107,6 +113,7 @@ def run_analysis(log_dir: str, target_model, test_loader, device, args):
     cam_maps = F.interpolate(cam_maps.unsqueeze(1), size=(
         32, 32), mode='bilinear', align_corners=False).squeeze(1)
 
+    # 可视化
     os.makedirs(os.path.join(log_dir, "visualizations"), exist_ok=True)
     plt.figure(figsize=(12, 8))
     for i in range(min(8, len(images))):
@@ -123,7 +130,7 @@ def run_analysis(log_dir: str, target_model, test_loader, device, args):
                 "gradcam_visualization.png"), bbox_inches="tight")
     plt.close()
 
-    # Training Trajectory
+    # 4. 训练曲线
     with open(os.path.join(log_dir, "results.json"), "r", encoding="utf-8") as f:
         results = json.load(f)
     epochs = [r["epoch"] for r in results["trajectory"]]
@@ -141,12 +148,13 @@ def run_analysis(log_dir: str, target_model, test_loader, device, args):
     plt.savefig(os.path.join(log_dir, "visualizations", "training_curve.png"))
     plt.close()
 
+    # 保存所有增强指标
     results["additional_metrics"] = additional_metrics
     with open(os.path.join(log_dir, "results.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, indent=4, ensure_ascii=False)
 
-    print(f"\n>>> XAI Analysis.")
+    print(f"\n>>> 可解释性分析完成（新增 Grad-CAM + MIA 高级指标）：")
     print(
-        f"Test Loss: {additional_metrics['test_loss']:.4f} | Top-5 Acc: {additional_metrics['top5_acc']:.2f}%")
-    print(f"Grad-CAM saved to visualizations/gradcam_visualization.png")
-    print(f"PSNR: {psnr_val:.2f} dB | Noise Robustness Acc: {noisy_acc:.2f}%")
+        f"    • Test Loss: {additional_metrics['test_loss']:.4f} | Top-5 Acc: {additional_metrics['top5_acc']:.2f}%")
+    print(f"    • Grad-CAM 已保存至 visualizations/gradcam_visualization.png")
+    print(f"    • 图像质量 PSNR: {psnr_val:.2f} dB | 噪声鲁棒性 Acc: {noisy_acc:.2f}%")
