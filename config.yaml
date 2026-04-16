@@ -1,0 +1,35 @@
+# ============================================================
+# Experiment Configuration — Static DP-SGD + MIA Evaluation
+# ============================================================
+
+# ---- Training ----
+training:
+  device: "cuda:0"
+  dataset: "CIFAR10"            # CIFAR10 | SVHN | MNIST | CelebA
+  batch_size: 512
+  lr: 0.05
+  target_epochs: 200
+  num_workers: 8
+  use_aug: false
+  weight_decay: 0.0             # Set to 0 to induce overfitting
+
+# ---- Differential Privacy ----
+dp:
+  use_dp: true
+  target_epsilon: 10.0          # Fixed privacy budget (ε)
+  delta: 1.0e-5                 # Privacy parameter δ
+  max_grad_norm: 1.2
+  max_physical_batch_size: 128
+
+# ---- XGBoost Attack Model ----
+attack:
+  n_estimators: 200
+  max_depth: 6
+  learning_rate: 0.05
+
+# ---- Paths ----
+paths:
+  data_root: "/home/syc/experiments/data"
+  log_base: "./logs"
+  checkpoint_dir: "./checkpoints"
+  figures_dir: "./figures"
