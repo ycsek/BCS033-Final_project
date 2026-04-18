@@ -4,9 +4,9 @@
 
 # ---- Training ----
 training:
-  device: "cuda:0"
-  dataset: "CIFAR10"            # CIFAR10 | SVHN | MNIST | CelebA
-  batch_size: 512
+  device: "cuda:4"
+  dataset: "CelebA"            # CIFAR10 | SVHN | MNIST | CelebA
+  batch_size: 128
   lr: 0.05
   target_epochs: 200
   num_workers: 8
@@ -15,8 +15,8 @@ training:
 
 # ---- Differential Privacy ----
 dp:
-  use_dp: true
-  target_epsilon: 10.0          # Fixed privacy budget (ε)
+  use_dp: false
+  target_epsilon: 8.0          # Fixed privacy budget (ε)
   delta: 1.0e-5                 # Privacy parameter δ
   max_grad_norm: 1.2
   max_physical_batch_size: 128

@@ -3,7 +3,7 @@
 
 All plotting functions live here.  Each function:
 - accepts data as dicts / numpy arrays / DataFrames (never raw model objects)
-- saves figures to *save_dir* in both PNG (300 dpi) and PDF formats
+- saves figures to *save_dir* as PNG (300 dpi)
 - uses seaborn styling for visual consistency
 """
 
@@ -34,61 +34,44 @@ def _ensure_dir(path: str) -> None:
 
 
 def _save_fig(fig: Figure, save_dir: str, name: str) -> None:
-    """Save a figure as both PNG and PDF."""
+    """Save a figure as PNG only."""
     _ensure_dir(save_dir)
-    for ext in ("png", "pdf"):
-        out = os.path.join(save_dir, f"{name}.{ext}")
-        fig.savefig(out, dpi=300, bbox_inches="tight")
-        logger.info("Saved figure: %s", out)
+    out = os.path.join(save_dir, f"{name}.png")
+    fig.savefig(out, dpi=300, bbox_inches="tight")
+    logger.info("Saved figure: %s", out)
     plt.close(fig)
 
 
 # ── Training-curve plots ───────────────────────────────────────────────────
 
-def plot_train_accuracy_curve(
+def plot_accuracy_curve(
     trajectory: List[Dict],
     save_dir: str,
 ) -> None:
-    """Plot training accuracy vs. epoch.
+    """Plot training and test accuracy on a single figure.
 
     Parameters
     ----------
     trajectory : list[dict]
-        Each dict must contain ``epoch`` and ``train_acc`` keys.
+        Each dict must contain ``epoch``, ``train_acc``, and ``target_acc``.
     save_dir : str
         Directory to write output figures.
     """
     epochs = [r["epoch"] for r in trajectory]
-    accs = [r["train_acc"] for r in trajectory]
+    train_accs = [r["train_acc"] for r in trajectory]
+    test_accs = [r["target_acc"] for r in trajectory]
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(epochs, accs, marker="o", markersize=3, color=_PALETTE[0],
+    ax.plot(epochs, train_accs, marker="o", markersize=3, color=_PALETTE[0],
             linewidth=1.5, label="Train Accuracy")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Accuracy (%)")
-    ax.set_title("Train Accuracy Curve")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    _save_fig(fig, save_dir, "train_accuracy_curve")
-
-
-def plot_test_accuracy_curve(
-    trajectory: List[Dict],
-    save_dir: str,
-) -> None:
-    """Plot test accuracy vs. epoch."""
-    epochs = [r["epoch"] for r in trajectory]
-    accs = [r["target_acc"] for r in trajectory]
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(epochs, accs, marker="s", markersize=3, color=_PALETTE[1],
+    ax.plot(epochs, test_accs, marker="s", markersize=3, color=_PALETTE[1],
             linewidth=1.5, label="Test Accuracy")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Accuracy (%)")
-    ax.set_title("Test Accuracy Curve")
+    ax.set_title("Training & Test Accuracy Curve")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    _save_fig(fig, save_dir, "test_accuracy_curve")
+    _save_fig(fig, save_dir, "accuracy_curve")
 
 
 def plot_loss_curve(
@@ -186,31 +169,6 @@ def plot_pca_2d(
     _save_fig(fig, save_dir, "pca_2d")
 
 
-def plot_pca_3d(
-    features: np.ndarray,
-    labels: np.ndarray,
-    save_dir: str,
-    title: str = "PCA 3-D Projection — Member vs. Non-Member",
-) -> None:
-    """3-D PCA scatter of MIA feature vectors."""
-    pca = PCA(n_components=3)
-    proj = pca.fit_transform(features)
-
-    fig = plt.figure(figsize=(12, 9))
-    ax = fig.add_subplot(111, projection="3d")
-    for lab, name, colour in [(1, "Member", _PALETTE[0]),
-                               (0, "Non-Member", _PALETTE[1])]:
-        mask = labels == lab
-        ax.scatter(proj[mask, 0], proj[mask, 1], proj[mask, 2],
-                   s=8, alpha=0.4, color=colour, label=name)
-    ax.set_xlabel(f"PC-1 ({pca.explained_variance_ratio_[0]:.1%})")
-    ax.set_ylabel(f"PC-2 ({pca.explained_variance_ratio_[1]:.1%})")
-    ax.set_zlabel(f"PC-3 ({pca.explained_variance_ratio_[2]:.1%})")
-    ax.set_title(title)
-    ax.legend(markerscale=3)
-    _save_fig(fig, save_dir, "pca_3d")
-
-
 def plot_tsne_2d(
     features: np.ndarray,
     labels: np.ndarray,
@@ -233,7 +191,7 @@ def plot_tsne_2d(
     title : str
         Plot title.
     """
-    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=1000,
+    tsne = TSNE(n_components=2, perplexity=perplexity, max_iter=1000,
                 random_state=42)
     proj = tsne.fit_transform(features)
 
@@ -312,3 +270,115 @@ def plot_training_trajectory(
     ax.legend()
     ax.grid(True, alpha=0.3)
     _save_fig(fig, save_dir, "training_trajectory")
+
+
+# ── Calibration: Reliability Diagram ──────────────────────────────────────
+
+def plot_reliability_diagram(
+    prob_true: np.ndarray,
+    prob_pred: np.ndarray,
+    save_dir: str,
+) -> None:
+    """Plot a reliability diagram (calibration curve).
+
+    Visualizes the deviation between the model's predicted confidence
+    and the observed (empirical) accuracy for each confidence bin,
+    alongside a perfect-calibration reference line.
+
+    Parameters
+    ----------
+    prob_true : np.ndarray, shape (n_bins,)
+        Fraction of positives (empirical accuracy) in each bin, as
+        returned by ``sklearn.calibration.calibration_curve``.
+    prob_pred : np.ndarray, shape (n_bins,)
+        Mean predicted probability (confidence) in each bin.
+    save_dir : str
+        Directory to write the output figure.
+    """
+    fig, ax = plt.subplots(figsize=(8, 8))
+
+    # Perfect calibration reference
+    ax.plot([0, 1], [0, 1], linestyle="--", color="black", linewidth=1.2,
+            label="Perfect Calibration")
+
+    # Model calibration curve
+    ax.plot(prob_pred, prob_true, marker="o", markersize=5,
+            color=_PALETTE[0], linewidth=1.8, label="Model")
+
+    # Shade the gap between model and perfect calibration
+    ax.fill_between(prob_pred, prob_pred, prob_true, alpha=0.15,
+                    color=_PALETTE[0])
+
+    ax.set_xlabel("Confidence")
+    ax.set_ylabel("Accuracy")
+    ax.set_title("Reliability Diagram — Model Calibration")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect("equal")
+    ax.legend(loc="lower right")
+    ax.grid(True, alpha=0.3)
+    _save_fig(fig, save_dir, "reliability_diagram")
+
+
+# ── ROC & Precision-Recall curves ─────────────────────────────────────────
+
+def plot_roc_pr_curves(
+    fpr: np.ndarray,
+    tpr: np.ndarray,
+    precision: np.ndarray,
+    recall: np.ndarray,
+    save_dir: str,
+) -> None:
+    """Plot ROC and Precision-Recall curves side by side.
+
+    Produces a 1×2 subplot figure summarizing the MIA attack
+    performance from two complementary perspectives.
+
+    Parameters
+    ----------
+    fpr : np.ndarray, shape (n_thresholds,)
+        False positive rates from ``sklearn.metrics.roc_curve``.
+    tpr : np.ndarray, shape (n_thresholds,)
+        True positive rates from ``sklearn.metrics.roc_curve``.
+    precision : np.ndarray, shape (n_thresholds_pr,)
+        Precision values from ``sklearn.metrics.precision_recall_curve``.
+    recall : np.ndarray, shape (n_thresholds_pr,)
+        Recall values from ``sklearn.metrics.precision_recall_curve``.
+    save_dir : str
+        Directory to write the output figure.
+    """
+    # Compute AUC for the ROC curve
+    auc_val = np.trapz(tpr, fpr)
+
+    fig, (ax_roc, ax_pr) = plt.subplots(1, 2, figsize=(16, 7))
+    fig.suptitle(
+        "Membership Inference Attack — ROC & Precision-Recall Curves",
+        fontsize=15, fontweight="bold", y=1.01,
+    )
+
+    # ── Left: ROC Curve ─────────────────────────────────────────
+    ax_roc.plot([0, 1], [0, 1], linestyle="--", color="gray",
+                linewidth=1.0, label="Random Classifier")
+    ax_roc.plot(fpr, tpr, color=_PALETTE[0], linewidth=1.8,
+                label=f"MIA Attack (AUC = {auc_val:.4f})")
+    ax_roc.set_xlabel("False Positive Rate")
+    ax_roc.set_ylabel("True Positive Rate")
+    ax_roc.set_title("ROC Curve — MIA Attack")
+    ax_roc.set_xlim(0, 1)
+    ax_roc.set_ylim(0, 1.02)
+    ax_roc.legend(loc="lower right")
+    ax_roc.grid(True, alpha=0.3)
+
+    # ── Right: Precision-Recall Curve ───────────────────────────
+    ax_pr.plot(recall, precision, color=_PALETTE[1], linewidth=1.8,
+               label="MIA Attack")
+    ax_pr.set_xlabel("Recall")
+    ax_pr.set_ylabel("Precision")
+    ax_pr.set_title("Precision-Recall Curve — MIA Attack")
+    ax_pr.set_xlim(0, 1)
+    ax_pr.set_ylim(0, 1.02)
+    ax_pr.legend(loc="upper right")
+    ax_pr.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    _save_fig(fig, save_dir, "mia_roc_pr_curves")

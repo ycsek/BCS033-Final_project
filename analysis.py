@@ -45,7 +45,7 @@ class GradCAM:
     def _save_activation(
         self, module: nn.Module, inp: tuple, output: torch.Tensor
     ) -> None:
-        self.activations = output.detach()
+        self.activations = output
 
     def generate(
         self,
@@ -67,6 +67,7 @@ class GradCAM:
             CAM maps of shape ``(B, H', W')``, normalized to [0, 1].
         """
         self.model.zero_grad()
+        input_tensor = input_tensor.requires_grad_(True)
         output = self.model(input_tensor)
         if target_class is None:
             target_class = output.argmax(dim=1)
@@ -203,13 +204,23 @@ def run_analysis(
     images = batch[0].to(device)[:16]
     labels_batch = batch[1].to(device)[:16]
 
-    base_model = (
+    # Build a clean (Opacus-free) copy for Grad-CAM so that no
+    # GradSampleModule backward hooks interfere with autograd.grad.
+    from dp import get_target_model as _build_model
+
+    raw_model = (
         target_model._module
         if hasattr(target_model, "_module")
         else target_model
     )
-    target_layer = dict(base_model.named_modules())["layer4"]
-    gradcam = GradCAM(base_model, target_layer)
+    clean_model = _build_model(
+        num_classes=raw_model.fc.out_features, device=device
+    )
+    clean_model.load_state_dict(raw_model.state_dict())
+    clean_model.eval()
+
+    target_layer = dict(clean_model.named_modules())["layer4"]
+    gradcam = GradCAM(clean_model, target_layer)
 
     with torch.no_grad():
         preds = target_model(images).argmax(dim=1)
@@ -221,8 +232,8 @@ def run_analysis(
     ).squeeze(1)
 
     # Convert to numpy for the visualisation function
-    images_np = images.cpu().permute(0, 2, 3, 1).numpy()
-    cam_np = cam_maps.cpu().numpy()
+    images_np = images.detach().cpu().permute(0, 2, 3, 1).numpy()
+    cam_np = cam_maps.detach().cpu().numpy()
     preds_list = preds.cpu().tolist()
     plot_gradcam(images_np, cam_np, preds_list, figures_dir)
 

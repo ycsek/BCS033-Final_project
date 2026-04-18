@@ -19,6 +19,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import (
+    precision_recall_curve,
     precision_recall_fscore_support,
     roc_auc_score,
     roc_curve,
@@ -195,6 +196,7 @@ def evaluate_mia_vulnerability(
     )
 
     fpr, tpr, _ = roc_curve(Y_test, test_probs)
+    pr_precision, pr_recall, _ = precision_recall_curve(Y_test, test_probs)
     tpr_0_1 = _get_tpr_at_fpr(fpr, tpr, 0.001) * 100.0
     tpr_1 = _get_tpr_at_fpr(fpr, tpr, 0.01) * 100.0
     tpr_5 = _get_tpr_at_fpr(fpr, tpr, 0.05) * 100.0
@@ -209,6 +211,11 @@ def evaluate_mia_vulnerability(
         "tpr_0_1": tpr_0_1,
         "tpr_1": tpr_1,
         "tpr_5": tpr_5,
+        # Curve data for plotting
+        "fpr": fpr,
+        "tpr": tpr,
+        "pr_precision": pr_precision,
+        "pr_recall": pr_recall,
         # Raw data for explainability
         "features": X,
         "labels": Y,

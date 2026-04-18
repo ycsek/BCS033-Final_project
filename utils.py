@@ -80,7 +80,8 @@ def get_dataloaders(
     elif dataset_name == "SVHN":
         mean, std = (0.4377, 0.4438, 0.4728), (0.1980, 0.2010, 0.1970)
         train_transform = transforms.Compose([
-            transforms.RandomCrop(32, padding=4) if use_aug else transforms.Identity(),
+            transforms.RandomCrop(
+                32, padding=4) if use_aug else transforms.Lambda(lambda x: x),
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ])
@@ -101,7 +102,8 @@ def get_dataloaders(
         train_transform = transforms.Compose([
             transforms.Resize((32, 32)),
             transforms.Grayscale(num_output_channels=3),
-            transforms.RandomCrop(32, padding=2) if use_aug else transforms.Identity(),
+            transforms.RandomCrop(
+                32, padding=2) if use_aug else transforms.Lambda(lambda x: x),
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ])
@@ -123,7 +125,7 @@ def get_dataloaders(
         mean, std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
         train_transform = transforms.Compose([
             transforms.Resize((32, 32)),
-            transforms.RandomHorizontalFlip() if use_aug else transforms.Identity(),
+            transforms.RandomHorizontalFlip() if use_aug else transforms.Lambda(lambda x: x),
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ])
@@ -137,15 +139,15 @@ def get_dataloaders(
             return target[20]
 
         train_dataset = torchvision.datasets.CelebA(
-            root=data_root, split='train', download=True,
+            root=data_root, split='train', download=False,
             transform=train_transform, target_type='attr',
             target_transform=target_transform)
         test_dataset = torchvision.datasets.CelebA(
-            root=data_root, split='test', download=True,
+            root=data_root, split='test', download=False,
             transform=test_transform, target_type='attr',
             target_transform=target_transform)
         eval_train_dataset = torchvision.datasets.CelebA(
-            root=data_root, split='train', download=True,
+            root=data_root, split='train', download=False,
             transform=test_transform, target_type='attr',
             target_transform=target_transform)
         num_classes = 2

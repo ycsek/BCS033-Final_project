@@ -27,12 +27,12 @@ from dp import evaluate_model, get_target_model, train_target_epoch
 from logger import ExperimentLogger
 from mia import evaluate_mia_vulnerability
 from visualization import (
+    plot_accuracy_curve,
     plot_asr_curve,
     plot_loss_curve,
     plot_pca_2d,
-    plot_pca_3d,
-    plot_test_accuracy_curve,
-    plot_train_accuracy_curve,
+    plot_reliability_diagram,
+    plot_roc_pr_curves,
     plot_tsne_2d,
 )
 
@@ -175,7 +175,8 @@ def main() -> None:
     # Store metrics (without raw numpy arrays / model objects)
     serializable_metrics = {
         k: v for k, v in mia_results.items()
-        if k not in ("features", "labels", "attack_model")
+        if k not in ("features", "labels", "attack_model",
+                     "fpr", "tpr", "pr_precision", "pr_recall")
     }
     exp_logger.log_final_metrics(serializable_metrics)
     exp_logger.save_results()
@@ -191,8 +192,7 @@ def main() -> None:
 
     # 3a — Training curves
     trajectory = exp_logger.results["trajectory"]
-    plot_train_accuracy_curve(trajectory, figures_dir)
-    plot_test_accuracy_curve(trajectory, figures_dir)
+    plot_accuracy_curve(trajectory, figures_dir)
     plot_loss_curve(trajectory, figures_dir)
     plot_asr_curve(serializable_metrics, figures_dir)
 
@@ -202,12 +202,30 @@ def main() -> None:
 
     exp_logger.info("Generating PCA 2-D projection...")
     plot_pca_2d(mia_features, mia_labels, figures_dir)
-    exp_logger.info("Generating PCA 3-D projection...")
-    plot_pca_3d(mia_features, mia_labels, figures_dir)
     exp_logger.info("Generating t-SNE 2-D projection...")
     plot_tsne_2d(mia_features, mia_labels, figures_dir)
 
-    # 3c — Grad-CAM + ECE + top-k (via analysis module)
+    # 3c — ROC & Precision-Recall curves
+    exp_logger.info("Generating ROC & Precision-Recall curves...")
+    plot_roc_pr_curves(
+        mia_results["fpr"], mia_results["tpr"],
+        mia_results["pr_precision"], mia_results["pr_recall"],
+        figures_dir,
+    )
+
+    # 3d — Reliability diagram (calibration curve)
+    exp_logger.info("Generating reliability diagram...")
+    from sklearn.calibration import calibration_curve
+    # Use the attack model's predicted probabilities on all data
+    attack_probs = mia_results["attack_model"].predict_proba(
+        mia_results["features"]
+    )[:, 1]
+    prob_true, prob_pred = calibration_curve(
+        mia_results["labels"], attack_probs, n_bins=15
+    )
+    plot_reliability_diagram(prob_true, prob_pred, figures_dir)
+
+    # 3e — Grad-CAM + ECE + top-k (via analysis module)
     run_analysis(exp_logger.log_dir, target_model, test_loader, device, cfg)
 
     # ═══════════════════ Phase 4: Model Persistence ═════════════════
