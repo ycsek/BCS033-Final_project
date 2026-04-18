@@ -23,6 +23,7 @@ def get_dataloaders(
     num_workers: int = 8,
     use_aug: bool = False,
     data_root: str = "/home/syc/experiments/data",
+    celebA_path: str | None = "/home/syc/experiments/data/celeba",
 ):
     """Create train, test, and eval-train data loaders.
 
@@ -122,6 +123,8 @@ def get_dataloaders(
         num_classes = 10
 
     elif dataset_name == "CelebA":
+        # Determine the root directory for CelebA dataset. Use provided celebA_path if given, otherwise fall back to data_root.
+        celeb_root = celebA_path if celebA_path is not None else data_root
         mean, std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
         train_transform = transforms.Compose([
             transforms.Resize((32, 32)),
@@ -139,15 +142,15 @@ def get_dataloaders(
             return target[20]
 
         train_dataset = torchvision.datasets.CelebA(
-            root=data_root, split='train', download=False,
+            root=celeb_root, split='train', download=False,
             transform=train_transform, target_type='attr',
             target_transform=target_transform)
         test_dataset = torchvision.datasets.CelebA(
-            root=data_root, split='test', download=False,
+            root=celeb_root, split='test', download=False,
             transform=test_transform, target_type='attr',
             target_transform=target_transform)
         eval_train_dataset = torchvision.datasets.CelebA(
-            root=data_root, split='train', download=False,
+            root=celeb_root, split='train', download=False,
             transform=test_transform, target_type='attr',
             target_transform=target_transform)
         num_classes = 2
