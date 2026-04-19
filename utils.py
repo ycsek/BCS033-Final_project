@@ -10,11 +10,116 @@ from __future__ import annotations
 import logging
 import os
 
+import torch
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
 
 logger = logging.getLogger(__name__)
+
+
+class CelebADataset(Dataset):
+    """Lightweight CelebA loader that reads directly from a local directory.
+
+    This avoids ``torchvision.datasets.CelebA``'s strict integrity checks
+    which fail when the dataset was downloaded / extracted manually.
+
+    Expected directory layout under *root*::
+
+        root/
+            img_align_celeba/
+                000001.jpg
+                000002.jpg
+                ...
+            list_eval_partition.txt
+            list_attr_celeba.txt
+    """
+
+    _SPLIT_MAP = {"train": 0, "valid": 1, "test": 2}
+
+    def __init__(
+        self,
+        root: str,
+        split: str = "train",
+        transform=None,
+        target_transform=None,
+    ):
+        super().__init__()
+        self.root = root
+        self.split = split
+        self.transform = transform
+        self.target_transform = target_transform
+
+        split_id = self._SPLIT_MAP[split]
+
+        # ── Read partition file (CSV) ─────────────────────────────
+        partition_path = os.path.join(root, "list_eval_partition.csv")
+        filenames, partitions = [], []
+        with open(partition_path, "r", encoding="utf-8") as f:
+            header = f.readline()               # skip CSV header
+            for line in f:
+                parts = line.strip().split(",")
+                if len(parts) >= 2:
+                    filenames.append(parts[0].strip())
+                    partitions.append(int(parts[1].strip()))
+
+        # ── Read attribute file (CSV) ─────────────────────────────
+        attr_path = os.path.join(root, "list_attr_celeba.csv")
+        attr_map: dict[str, list[int]] = {}
+        with open(attr_path, "r", encoding="utf-8") as f:
+            header = f.readline()               # skip CSV header
+            for line in f:
+                parts = line.strip().split(",")
+                if len(parts) < 2:
+                    continue
+                fname = parts[0].strip()
+                # CelebA attrs are -1/1; convert to 0/1
+                attrs = [max(0, int(v.strip())) for v in parts[1:]]
+                attr_map[fname] = attrs
+
+        # ── Locate image directory ────────────────────────────────
+        img_dir = os.path.join(root, "img_align_celeba")
+        # Handle common double-nested extraction:
+        #   img_align_celeba/img_align_celeba/*.jpg
+        nested = os.path.join(img_dir, "img_align_celeba")
+        if os.path.isdir(nested):
+            img_dir = nested
+
+        # ── Filter by split ───────────────────────────────────────
+        self.samples: list[tuple[str, list[int]]] = []
+        missing = 0
+        for fname, pid in zip(filenames, partitions):
+            if pid == split_id and fname in attr_map:
+                img_path = os.path.join(img_dir, fname)
+                if os.path.isfile(img_path):
+                    self.samples.append((img_path, attr_map[fname]))
+                else:
+                    missing += 1
+
+        if missing > 0:
+            logger.warning(
+                "CelebADataset [%s]: %d images not found in %s — skipped",
+                split, missing, img_dir,
+            )
+        logger.info(
+            "CelebADataset [%s]: %d samples from %s",
+            split, len(self.samples), img_dir,
+        )
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, index: int):
+        img_path, attrs = self.samples[index]
+        img = Image.open(img_path).convert("RGB")
+        target = torch.tensor(attrs, dtype=torch.long)
+
+        if self.transform is not None:
+            img = self.transform(img)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return img, target
 
 
 def get_dataloaders(
@@ -141,17 +246,17 @@ def get_dataloaders(
         def target_transform(target):
             return target[20]
 
-        train_dataset = torchvision.datasets.CelebA(
-            root=celeb_root, split='train', download=False,
-            transform=train_transform, target_type='attr',
+        train_dataset = CelebADataset(
+            root=celeb_root, split='train',
+            transform=train_transform,
             target_transform=target_transform)
-        test_dataset = torchvision.datasets.CelebA(
-            root=celeb_root, split='test', download=False,
-            transform=test_transform, target_type='attr',
+        test_dataset = CelebADataset(
+            root=celeb_root, split='test',
+            transform=test_transform,
             target_transform=target_transform)
-        eval_train_dataset = torchvision.datasets.CelebA(
-            root=celeb_root, split='train', download=False,
-            transform=test_transform, target_type='attr',
+        eval_train_dataset = CelebADataset(
+            root=celeb_root, split='train',
+            transform=test_transform,
             target_transform=target_transform)
         num_classes = 2
     else:

@@ -4,11 +4,11 @@
 
 # ---- Training ----
 training:
-  device: "cuda:4"
+  device: "cuda:3"
   dataset: "CelebA"            # CIFAR10 | SVHN | MNIST | CelebA
-  batch_size: 128
+  batch_size: 512
   lr: 0.05
-  target_epochs: 200
+  target_epochs: 100
   num_workers: 8
   use_aug: false
   weight_decay: 0.0             # Set to 0 to induce overfitting
@@ -30,6 +30,7 @@ attack:
 # ---- Paths ----
 paths:
   data_root: "/home/syc/experiments/data"
+  celebA_path: "/home/syc/experiments/data/celeba"
   log_base: "./logs"
   checkpoint_dir: "./checkpoints"
   figures_dir: "./figures"
