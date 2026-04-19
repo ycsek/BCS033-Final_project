@@ -1,4 +1,3 @@
-# main.py
 """Static DP-SGD and MIA Evaluation — Main Orchestrator.
 
 Pipeline phases:
@@ -60,21 +59,27 @@ def main() -> None:
     # ── 1. Data loading ─────────────────────────────────────────────
     from utils import get_dataloaders
 
+    train_subset_size = getattr(cfg.training, "train_subset_size", None)
+
     train_loader, test_loader, eval_train_loader, num_classes = get_dataloaders(
         dataset_name=cfg.training.dataset,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.training.num_workers,
         use_aug=cfg.training.use_aug,
         data_root=cfg.paths.data_root,
+        celebA_path=getattr(cfg.paths, "celebA_path", None),
+        train_subset_size=train_subset_size,
     )
 
     # ── 2. Model, loss, optimizer ───────────────────────────────────
     target_model = get_target_model(num_classes, device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(
+
+    # [修改核心 1] 换用 Adam 优化器。
+    # Adam 能在小数据集上极速收敛并发生严重过拟合，它是我们拉高 MIA ASR 基准的最佳武器。
+    optimizer = optim.Adam(
         target_model.parameters(),
         lr=cfg.training.lr,
-        momentum=0.9,
         weight_decay=cfg.training.weight_decay,
     )
 
@@ -97,6 +102,13 @@ def main() -> None:
             f"DP-SGD enabled — target ε={cfg.dp.target_epsilon}, "
             f"δ={cfg.dp.delta}"
         )
+
+    # [修改核心 2] 增加学习率调度器。
+    # 强制学习率在训练后期平滑降至 0，迫使模型将 Train Loss 压榨到极致（完全死记硬背）。
+    # 注意：为了防止破坏 Opacus 内部结构，Scheduler 必须在 make_private 之后声明！
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=cfg.training.target_epochs
+    )
 
     # ═══════════════════ Phase 1: Training ══════════════════════════
     exp_logger.info(
@@ -121,6 +133,9 @@ def main() -> None:
                 device, epoch, cfg.training.target_epochs,
             )
 
+        # 步进调度器，更新下一轮的 Learning Rate
+        scheduler.step()
+
         # Evaluate
         train_acc = evaluate_model(target_model, eval_train_loader, device)
         target_acc = evaluate_model(target_model, test_loader, device)
@@ -130,8 +145,11 @@ def main() -> None:
             else None
         )
 
+        current_lr = scheduler.get_last_lr()[0]
+
         log_msg = (
             f"Target Epoch {epoch}/{cfg.training.target_epochs} | "
+            f"LR: {current_lr:.6f} | "
             f"Loss: {target_loss:.4f} | "
             f"Train ACC: {train_acc:.2f}% | "
             f"Test ACC: {target_acc:.2f}%"
@@ -139,7 +157,8 @@ def main() -> None:
         if epsilon is not None:
             log_msg += f" | ε: {epsilon:.2f}"
         exp_logger.info(log_msg)
-        exp_logger.log_epoch_metrics(epoch, target_loss, train_acc, target_acc, epsilon)
+        exp_logger.log_epoch_metrics(
+            epoch, target_loss, train_acc, target_acc, epsilon)
 
     exp_logger.log_training_end()
 

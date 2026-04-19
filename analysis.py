@@ -120,7 +120,8 @@ def compute_ece(
         if prop_in_bin.item() > 0:
             accuracy_in_bin = accuracies[in_bin].float().mean()
             avg_confidence_in_bin = confidences[in_bin].mean()
-            ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+            ece += torch.abs(avg_confidence_in_bin -
+                             accuracy_in_bin) * prop_in_bin
     return ece.item()
 
 
@@ -165,6 +166,7 @@ def run_analysis(
     criterion = nn.CrossEntropyLoss()
 
     all_probs, all_labels = [], []
+    k_val = 5
 
     with torch.no_grad():
         for inputs, targets in test_loader:
@@ -177,7 +179,10 @@ def run_analysis(
             all_probs.append(probs)
             all_labels.append(targets)
 
-            _, pred = outputs.topk(5, 1, True, True)
+            # [修复 Bug]: 动态自适应 Top-k，防止类别数不足 5 (例如 CelebA 二分类) 时抛出越界异常
+            k_val = min(5, outputs.size(1))
+            _, pred = outputs.topk(k_val, 1, True, True)
+
             top1_correct += pred[:, 0].eq(targets).sum().item()
             top5_correct += (
                 pred.eq(targets.view(-1, 1).expand_as(pred)).sum().item()
@@ -199,6 +204,7 @@ def run_analysis(
 
     # ── Grad-CAM ────────────────────────────────────────────────────
     figures_dir = os.path.join(log_dir, "figures")
+    os.makedirs(figures_dir, exist_ok=True)
 
     batch = next(iter(test_loader))
     images = batch[0].to(device)[:16]
@@ -253,8 +259,10 @@ def run_analysis(
             json.dump(results, fh, indent=4, ensure_ascii=False)
 
     logger.info(
-        "Analysis complete — Test Loss: %.4f | Top-5 Acc: %.2f%% | ECE: %.4f",
+        "Analysis complete — Test Loss: %.4f | Top-1 Acc: %.2f%% | Top-%d Acc: %.2f%% | ECE: %.4f",
         additional_metrics["test_loss"],
+        additional_metrics["top1_acc"],
+        k_val,
         additional_metrics["top5_acc"],
         ece_val,
     )

@@ -1,9 +1,4 @@
-# utils.py
-"""Data loading utilities.
-
-Provides ``get_dataloaders`` which returns train, test, and eval-train
-data loaders for the supported datasets.
-"""
+"""Data loading utilities."""
 
 from __future__ import annotations
 
@@ -20,21 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class CelebADataset(Dataset):
-    """Lightweight CelebA loader that reads directly from a local directory.
-
-    This avoids ``torchvision.datasets.CelebA``'s strict integrity checks
-    which fail when the dataset was downloaded / extracted manually.
-
-    Expected directory layout under *root*::
-
-        root/
-            img_align_celeba/
-                000001.jpg
-                000002.jpg
-                ...
-            list_eval_partition.txt
-            list_attr_celeba.txt
-    """
+    """Lightweight CelebA loader that reads directly from a local directory."""
 
     _SPLIT_MAP = {"train": 0, "valid": 1, "test": 2}
 
@@ -53,40 +34,33 @@ class CelebADataset(Dataset):
 
         split_id = self._SPLIT_MAP[split]
 
-        # ── Read partition file (CSV) ─────────────────────────────
         partition_path = os.path.join(root, "list_eval_partition.csv")
         filenames, partitions = [], []
         with open(partition_path, "r", encoding="utf-8") as f:
-            header = f.readline()               # skip CSV header
+            header = f.readline()
             for line in f:
                 parts = line.strip().split(",")
                 if len(parts) >= 2:
                     filenames.append(parts[0].strip())
                     partitions.append(int(parts[1].strip()))
 
-        # ── Read attribute file (CSV) ─────────────────────────────
         attr_path = os.path.join(root, "list_attr_celeba.csv")
         attr_map: dict[str, list[int]] = {}
         with open(attr_path, "r", encoding="utf-8") as f:
-            header = f.readline()               # skip CSV header
+            header = f.readline()
             for line in f:
                 parts = line.strip().split(",")
                 if len(parts) < 2:
                     continue
                 fname = parts[0].strip()
-                # CelebA attrs are -1/1; convert to 0/1
                 attrs = [max(0, int(v.strip())) for v in parts[1:]]
                 attr_map[fname] = attrs
 
-        # ── Locate image directory ────────────────────────────────
         img_dir = os.path.join(root, "img_align_celeba")
-        # Handle common double-nested extraction:
-        #   img_align_celeba/img_align_celeba/*.jpg
         nested = os.path.join(img_dir, "img_align_celeba")
         if os.path.isdir(nested):
             img_dir = nested
 
-        # ── Filter by split ───────────────────────────────────────
         self.samples: list[tuple[str, list[int]]] = []
         missing = 0
         for fname, pid in zip(filenames, partitions):
@@ -129,32 +103,9 @@ def get_dataloaders(
     use_aug: bool = False,
     data_root: str = "/home/syc/experiments/data",
     celebA_path: str | None = "/home/syc/experiments/data/celeba",
+    train_subset_size: int | None = None,  # [新增]
 ):
-    """Create train, test, and eval-train data loaders.
-
-    Parameters
-    ----------
-    dataset_name : str
-        One of ``CIFAR10``, ``SVHN``, ``MNIST``, ``CelebA``.
-    batch_size : int
-        Mini-batch size.
-    num_workers : int
-        Number of data-loading workers.
-    use_aug : bool
-        Whether to apply data augmentation to training data.
-    data_root : str
-        Root directory for downloaded datasets.
-
-    Returns
-    -------
-    tuple
-        ``(train_loader, test_loader, eval_train_loader, num_classes)``
-
-    Raises
-    ------
-    ValueError
-        If *dataset_name* is not supported.
-    """
+    """Create train, test, and eval-train data loaders."""
     os.makedirs(data_root, exist_ok=True)
 
     if dataset_name == "CIFAR10":
@@ -228,7 +179,6 @@ def get_dataloaders(
         num_classes = 10
 
     elif dataset_name == "CelebA":
-        # Determine the root directory for CelebA dataset. Use provided celebA_path if given, otherwise fall back to data_root.
         celeb_root = celebA_path if celebA_path is not None else data_root
         mean, std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
         train_transform = transforms.Compose([
@@ -262,17 +212,31 @@ def get_dataloaders(
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
+    # [新增核心逻辑] 强制截断训练集以引发严重的泛化差异 (过拟合)
+    if train_subset_size is not None and train_subset_size > 0:
+        if train_subset_size < len(train_dataset):
+            gen = torch.Generator().manual_seed(42)  # 固定种子保证实验可复现
+            indices = torch.randperm(len(train_dataset), generator=gen)[
+                :train_subset_size].tolist()
+            train_dataset = torch.utils.data.Subset(train_dataset, indices)
+            eval_train_dataset = torch.utils.data.Subset(
+                eval_train_dataset, indices)
+            logger.info(
+                "Subsampled training dataset to %d to induce overfitting.", train_subset_size)
+
     loader_kwargs = {
         "num_workers": num_workers,
         "pin_memory": True,
         "prefetch_factor": 2,
     }
+
+    # [修改] 训练集添加 drop_last=True 适应 DP 的 Batch 验证
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, **loader_kwargs)
+        train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, **loader_kwargs)
     test_loader = DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
+        test_dataset, batch_size=batch_size, shuffle=False, drop_last=False, **loader_kwargs)
     eval_train_loader = DataLoader(
-        eval_train_dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
+        eval_train_dataset, batch_size=batch_size, shuffle=False, drop_last=False, **loader_kwargs)
 
     logger.info(
         "Loaded %s — train: %d, test: %d, num_classes: %d",

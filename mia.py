@@ -1,12 +1,4 @@
-# mia.py
-"""Membership Inference Attack (MIA) module.
-
-Extracts strong feature vectors from a target model's outputs and trains
-an XGBoost binary classifier to distinguish members from non-members.
-
-Returns evaluation metrics **and** the raw features / fitted model so
-they can be used for explainability (PCA/t-SNE) and model persistence.
-"""
+"""Membership Inference Attack (MIA) module."""
 
 from __future__ import annotations
 
@@ -29,8 +21,6 @@ from xgboost import XGBClassifier
 logger = logging.getLogger(__name__)
 
 
-# ── Feature extraction ──────────────────────────────────────────────────────
-
 def extract_strong_features(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
@@ -38,34 +28,6 @@ def extract_strong_features(
     num_classes: int,
     device: torch.device,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Extract rich feature vectors from a target model for MIA.
-
-    For each sample the feature vector consists of:
-    - Sorted softmax probabilities  (num_classes)
-    - Sorted raw logits             (num_classes)
-    - Per-sample cross-entropy loss (1)
-    - One-hot encoded true label    (num_classes)
-    - Prediction entropy            (1)
-
-    Parameters
-    ----------
-    model : nn.Module
-        Target model in eval mode.
-    dataloader : DataLoader
-        Data loader for member or non-member data.
-    is_member : bool
-        ``True`` if the data are training (member) samples.
-    num_classes : int
-        Number of classes in the dataset.
-    device : torch.device
-        Compute device.
-
-    Returns
-    -------
-    features : np.ndarray, shape (N, feature_dim)
-    labels : np.ndarray, shape (N,)
-        Binary membership labels (1 = member, 0 = non-member).
-    """
     model.eval()
     features, labels = [], []
     criterion = nn.CrossEntropyLoss(reduction="none")
@@ -81,6 +43,9 @@ def extract_strong_features(
             sorted_logits, _ = torch.sort(outputs, dim=1, descending=True)
 
             loss_values = criterion(outputs, targets).unsqueeze(1)
+            # [新增特征] 模型预测是否正确
+            is_correct = (outputs.argmax(dim=1) ==
+                          targets).float().unsqueeze(1)
             one_hot_labels = F.one_hot(
                 targets, num_classes=num_classes
             ).float()
@@ -89,7 +54,7 @@ def extract_strong_features(
             )
 
             batch_features = torch.cat(
-                (sorted_probs, sorted_logits, loss_values,
+                (sorted_probs, sorted_logits, loss_values, is_correct,
                  one_hot_labels, entropy),
                 dim=1,
             )
@@ -104,17 +69,12 @@ def extract_strong_features(
     return np.vstack(features), np.concatenate(labels)
 
 
-# ── Utility ─────────────────────────────────────────────────────────────────
-
 def _get_tpr_at_fpr(
     fpr: np.ndarray, tpr: np.ndarray, target_fpr: float
 ) -> float:
-    """Return TPR at a given FPR threshold using the ROC curve."""
     idx = np.where(fpr <= target_fpr)[0][-1]
     return float(tpr[idx])
 
-
-# ── Main evaluation entry point ────────────────────────────────────────────
 
 def evaluate_mia_vulnerability(
     target_model: nn.Module,
@@ -124,30 +84,6 @@ def evaluate_mia_vulnerability(
     device: torch.device,
     cfg: SimpleNamespace,
 ) -> Dict[str, Any]:
-    """Run a full MIA evaluation using XGBoost.
-
-    Parameters
-    ----------
-    target_model : nn.Module
-        Trained target model.
-    train_loader, test_loader : DataLoader
-        Member and non-member data loaders.
-    num_classes : int
-        Number of dataset classes.
-    device : torch.device
-        Compute device.
-    cfg : SimpleNamespace
-        Full experiment configuration (attack hypers read from ``cfg.attack``).
-
-    Returns
-    -------
-    dict
-        Keys:
-        - Standard metrics: asr, auc_roc, precision, recall, f1
-        - Low-FPR TPR: tpr_0_1, tpr_1, tpr_5
-        - Raw data: features (np.ndarray), labels (np.ndarray)
-        - Fitted model: attack_model (XGBClassifier)
-    """
     # ── Extract features ────────────────────────────────────────────
     feat_in, lab_in = extract_strong_features(
         target_model, train_loader, True, num_classes, device
@@ -156,10 +92,16 @@ def evaluate_mia_vulnerability(
         target_model, test_loader, False, num_classes, device
     )
 
-    # Balance classes
+    # Balance classes and shuffle
     min_len = min(len(feat_in), len(feat_out))
-    X = np.vstack((feat_in[:min_len], feat_out[:min_len]))
-    Y = np.concatenate((lab_in[:min_len], lab_out[:min_len]))
+
+    # [修改] 随机打乱再截取，防止按顺序截取导致非成员分布发生偏差
+    np.random.seed(42)
+    idx_in = np.random.permutation(len(feat_in))[:min_len]
+    idx_out = np.random.permutation(len(feat_out))[:min_len]
+
+    X = np.vstack((feat_in[idx_in], feat_out[idx_out]))
+    Y = np.concatenate((lab_in[idx_in], lab_out[idx_out]))
 
     # Train / test split (80/20)
     indices = np.arange(len(X))
@@ -202,7 +144,6 @@ def evaluate_mia_vulnerability(
     tpr_5 = _get_tpr_at_fpr(fpr, tpr, 0.05) * 100.0
 
     return {
-        # Metrics
         "asr": asr,
         "auc_roc": auc_roc,
         "precision": precision,
@@ -211,14 +152,11 @@ def evaluate_mia_vulnerability(
         "tpr_0_1": tpr_0_1,
         "tpr_1": tpr_1,
         "tpr_5": tpr_5,
-        # Curve data for plotting
         "fpr": fpr,
         "tpr": tpr,
         "pr_precision": pr_precision,
         "pr_recall": pr_recall,
-        # Raw data for explainability
         "features": X,
         "labels": Y,
-        # Fitted attack model for persistence
         "attack_model": attack_model,
     }

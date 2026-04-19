@@ -1,4 +1,3 @@
-# config.py
 """Configuration loader — reads a YAML file and exposes values as
 a nested namespace with attribute access.  CLI arguments can override
 any top-level YAML key via ``--key value`` pairs.
@@ -23,23 +22,7 @@ def _namespace(d: Dict[str, Any]) -> SimpleNamespace:
 
 
 def load_config(yaml_path: str = "config.yaml") -> SimpleNamespace:
-    """Load experiment configuration from a YAML file.
-
-    Parameters
-    ----------
-    yaml_path : str
-        Path to the YAML configuration file.
-
-    Returns
-    -------
-    SimpleNamespace
-        Nested namespace object with attribute access for all config values.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the YAML file does not exist.
-    """
+    """Load experiment configuration from a YAML file."""
     if not os.path.isfile(yaml_path):
         raise FileNotFoundError(f"Config file not found: {yaml_path}")
 
@@ -51,25 +34,12 @@ def load_config(yaml_path: str = "config.yaml") -> SimpleNamespace:
 
 
 def load_config_with_cli(yaml_default: str = "config.yaml") -> SimpleNamespace:
-    """Load config from YAML, allowing a ``--config`` CLI override.
-
-    Parameters
-    ----------
-    yaml_default : str
-        Fallback YAML path when ``--config`` is not supplied.
-
-    Returns
-    -------
-    SimpleNamespace
-        Fully resolved configuration namespace.
-    """
+    """Load config from YAML, allowing a ``--config`` CLI override."""
     parser = argparse.ArgumentParser(
         description="Static DP-SGD and MIA Evaluation"
     )
     parser.add_argument(
-        "--config",
-        type=str,
-        default=yaml_default,
+        "--config", type=str, default=yaml_default,
         help="Path to YAML configuration file",
     )
     # Allow selective CLI overrides for convenience
@@ -79,6 +49,7 @@ def load_config_with_cli(yaml_default: str = "config.yaml") -> SimpleNamespace:
     parser.add_argument("--use_dp", action="store_true", default=None)
     parser.add_argument("--no_dp", dest="use_dp", action="store_false")
     parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--train_subset_size", type=int, default=None) # [新增]
 
     args = parser.parse_args()
     cfg = load_config(args.config)
@@ -94,5 +65,7 @@ def load_config_with_cli(yaml_default: str = "config.yaml") -> SimpleNamespace:
         cfg.dp.use_dp = args.use_dp
     if args.batch_size is not None:
         cfg.training.batch_size = args.batch_size
+    if args.train_subset_size is not None:
+        cfg.training.train_subset_size = args.train_subset_size
 
     return cfg
