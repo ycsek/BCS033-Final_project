@@ -212,10 +212,9 @@ def get_dataloaders(
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
-    # [新增核心逻辑] 强制截断训练集以引发严重的泛化差异 (过拟合)
     if train_subset_size is not None and train_subset_size > 0:
         if train_subset_size < len(train_dataset):
-            gen = torch.Generator().manual_seed(42)  # 固定种子保证实验可复现
+            gen = torch.Generator().manual_seed(42)
             indices = torch.randperm(len(train_dataset), generator=gen)[
                 :train_subset_size].tolist()
             train_dataset = torch.utils.data.Subset(train_dataset, indices)
@@ -230,7 +229,6 @@ def get_dataloaders(
         "prefetch_factor": 2,
     }
 
-    # [修改] 训练集添加 drop_last=True 适应 DP 的 Batch 验证
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, **loader_kwargs)
     test_loader = DataLoader(

@@ -41,7 +41,7 @@ class ExperimentLogger:
         # ── Set up Python logger ────────────────────────────────────
         self.logger = logging.getLogger(f"experiment.{timestamp}")
         self.logger.setLevel(logging.INFO)
-        self.logger.propagate = False  # avoid duplicate output
+        self.logger.propagate = False
 
         fmt = logging.Formatter(
             "%(asctime)s | %(levelname)s | %(message)s",

@@ -75,8 +75,6 @@ def main() -> None:
     target_model = get_target_model(num_classes, device)
     criterion = nn.CrossEntropyLoss()
 
-    # [修改核心 1] 换用 Adam 优化器。
-    # Adam 能在小数据集上极速收敛并发生严重过拟合，它是我们拉高 MIA ASR 基准的最佳武器。
     optimizer = optim.Adam(
         target_model.parameters(),
         lr=cfg.training.lr,
@@ -103,9 +101,6 @@ def main() -> None:
             f"δ={cfg.dp.delta}"
         )
 
-    # [修改核心 2] 增加学习率调度器。
-    # 强制学习率在训练后期平滑降至 0，迫使模型将 Train Loss 压榨到极致（完全死记硬背）。
-    # 注意：为了防止破坏 Opacus 内部结构，Scheduler 必须在 make_private 之后声明！
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=cfg.training.target_epochs
     )
@@ -133,7 +128,6 @@ def main() -> None:
                 device, epoch, cfg.training.target_epochs,
             )
 
-        # 步进调度器，更新下一轮的 Learning Rate
         scheduler.step()
 
         # Evaluate

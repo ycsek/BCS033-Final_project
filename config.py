@@ -49,7 +49,7 @@ def load_config_with_cli(yaml_default: str = "config.yaml") -> SimpleNamespace:
     parser.add_argument("--use_dp", action="store_true", default=None)
     parser.add_argument("--no_dp", dest="use_dp", action="store_false")
     parser.add_argument("--batch_size", type=int, default=None)
-    parser.add_argument("--train_subset_size", type=int, default=None) # [新增]
+    parser.add_argument("--train_subset_size", type=int, default=None)
 
     args = parser.parse_args()
     cfg = load_config(args.config)

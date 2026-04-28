@@ -179,7 +179,6 @@ def run_analysis(
             all_probs.append(probs)
             all_labels.append(targets)
 
-            # [修复 Bug]: 动态自适应 Top-k，防止类别数不足 5 (例如 CelebA 二分类) 时抛出越界异常
             k_val = min(5, outputs.size(1))
             _, pred = outputs.topk(k_val, 1, True, True)
 
@@ -243,14 +242,12 @@ def run_analysis(
     preds_list = preds.cpu().tolist()
     plot_gradcam(images_np, cam_np, preds_list, figures_dir)
 
-    # ── Training trajectory plot ────────────────────────────────────
     results_path = os.path.join(log_dir, "results.json")
     if os.path.isfile(results_path):
         with open(results_path, "r", encoding="utf-8") as fh:
             results = json.load(fh)
         plot_training_trajectory(results["trajectory"], figures_dir)
 
-    # ── Update results JSON with additional metrics ─────────────────
     if os.path.isfile(results_path):
         with open(results_path, "r", encoding="utf-8") as fh:
             results = json.load(fh)

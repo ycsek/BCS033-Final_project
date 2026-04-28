@@ -43,7 +43,6 @@ def extract_strong_features(
             sorted_logits, _ = torch.sort(outputs, dim=1, descending=True)
 
             loss_values = criterion(outputs, targets).unsqueeze(1)
-            # [新增特征] 模型预测是否正确
             is_correct = (outputs.argmax(dim=1) ==
                           targets).float().unsqueeze(1)
             one_hot_labels = F.one_hot(
@@ -95,7 +94,6 @@ def evaluate_mia_vulnerability(
     # Balance classes and shuffle
     min_len = min(len(feat_in), len(feat_out))
 
-    # [修改] 随机打乱再截取，防止按顺序截取导致非成员分布发生偏差
     np.random.seed(42)
     idx_in = np.random.permutation(len(feat_in))[:min_len]
     idx_out = np.random.permutation(len(feat_out))[:min_len]

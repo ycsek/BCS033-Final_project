@@ -1,63 +1,26 @@
-# # ============================================================
-# # Experiment Configuration — Static DP-SGD + MIA Evaluation
-# # ============================================================
-
-# # ---- Training ----
-# training:
-#   device: "cuda:3"
-#   dataset: "CelebA"            # CIFAR10 | SVHN | MNIST | CelebA
-#   batch_size: 512
-#   lr: 0.05
-#   target_epochs: 100
-#   num_workers: 8
-#   use_aug: false
-#   weight_decay: 0.0             # Set to 0 to induce overfitting
-
-# # ---- Differential Privacy ----
-# dp:
-#   use_dp: false
-#   target_epsilon: 8.0          # Fixed privacy budget (ε)
-#   delta: 1.0e-5                 # Privacy parameter δ
-#   max_grad_norm: 1.2
-#   max_physical_batch_size: 128
-
-# # ---- XGBoost Attack Model ----
-# attack:
-#   n_estimators: 200
-#   max_depth: 6
-#   learning_rate: 0.05
-
-# # ---- Paths ----
-# paths:
-#   data_root: "/home/syc/experiments/data"
-#   celebA_path: "/home/syc/experiments/data/celeba"
-#   log_base: "./logs"
-#   checkpoint_dir: "./checkpoints"
-#   figures_dir: "./figures"
-
 # ============================================================
 # Experiment Configuration — Static DP-SGD + MIA Evaluation
 # ============================================================
 
 # ---- Training ----
 training:
-  device: "cuda:4"
-  dataset: "CelebA"            # CIFAR10 | SVHN | MNIST | CelebA
-  batch_size: 64               # [修改] 减小 batch_size，翻倍每个 epoch 的更新步数
-  lr: 0.001                    # [修改] 配合 Adam 优化器的标准学习率
-  target_epochs: 100           # [修改] 给足 100 轮，确保模型 100% 死记硬背
+  device: "cuda:0"
+  dataset: "CIFAR10"            # CIFAR10 | SVHN | MNIST | CelebA
+  batch_size: 256              
+  lr: 0.001     
+  target_epochs: 100    
   num_workers: 8
   use_aug: false
   weight_decay: 0.0
-  train_subset_size: 5000      # 保持 5000
+  train_subset_size: 50000
 
 # ---- Differential Privacy ----
 dp:
   use_dp: true
-  target_epsilon: 8.0          # Fixed privacy budget (ε)
+  target_epsilon: 8.0          # privacy budget ε
   delta: 1.0e-5                # Privacy parameter δ
   max_grad_norm: 1.2
-  max_physical_batch_size: 64  # [修改] 与 batch_size 对齐
+  max_physical_batch_size: 256
 
 # ---- XGBoost Attack Model ----
 attack:

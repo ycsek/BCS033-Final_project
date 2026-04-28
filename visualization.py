@@ -112,7 +112,7 @@ def plot_asr_curve(
     metric_names = ["ASR (%)", "AUC-ROC", "Precision", "Recall", "F1"]
     values = [
         mia_metrics["asr"],
-        mia_metrics["auc_roc"] * 100,  # scale to %
+        mia_metrics["auc_roc"] * 100,
         mia_metrics["precision"] * 100,
         mia_metrics["recall"] * 100,
         mia_metrics["f1"] * 100,

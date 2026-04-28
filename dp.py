@@ -56,8 +56,8 @@ def _patched_basicblock_forward(self, x: torch.Tensor) -> torch.Tensor:
     return out
 
 
-Bottleneck.forward = _patched_bottleneck_forward  # type: ignore[assignment]
-BasicBlock.forward = _patched_basicblock_forward  # type: ignore[assignment]
+Bottleneck.forward = _patched_bottleneck_forward
+BasicBlock.forward = _patched_basicblock_forward 
 
 
 # ── Model factory ──────────────────────────────────────────────────────────
